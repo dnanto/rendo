@@ -58,19 +58,19 @@ def load_enzyme(enzyme):
 	return regex, c5, c3
 
 
-def digest(enzyme, c5, c3, dna, length=True):
+def digest(enzyme, c5, c3, dna, fragments=True):
 	positions = [ele.start() for ele in re.finditer(enzyme, dna)]
 	p5 = [0] + [pos + c5 for pos in positions] + [len(dna) + 1]
 	p3 = [0] + [pos + c3 for pos in positions] + [len(dna) + 1]
 	indexes = range(len(p5) - 1)
-	if length:
-		for idx in indexes:
-			l5, l3 = p5[idx + 1] - p5[idx] + 1, p3[idx + 1] - p3[idx] + 1
-			yield p5[idx], p5[idx + 1], p3[idx], p3[idx + 1], l5, l3
-	else:
+	if fragments:
 		for idx in indexes:
 			s5, s3 = dna[p5[idx]:p5[idx + 1]], Seq.complement(dna[p3[idx]:p3[idx + 1]])
 			yield p5[idx], p5[idx + 1], p3[idx], p3[idx + 1], s5, s3
+	else:
+		for idx in indexes:
+			l5, l3 = p5[idx + 1] - p5[idx] + 1, p3[idx + 1] - p3[idx] + 1
+			yield p5[idx], p5[idx + 1], p3[idx], p3[idx + 1], l5, l3
 
 
 def parse_argv(argv):
@@ -95,7 +95,7 @@ def parse_argv(argv):
 		"-fmt-out", "--fmt-out", default="tab"
 	)
 	parser.add_argument(
-		"-length", "--length", action="store_true"
+		"-fragments", "--fragments", action="store_true"
 	)
 
 	args = parser.parse_args(argv)
@@ -110,11 +110,11 @@ def main(argv):
 		enzymes = list((tag, *load_enzyme(enzyme)) for tag, enzyme in map(str.split, file))
 
 	with args.file as file1, args.out as file2:
-		print("id", "enzyme", "regex", "c1p5", "c2p5", "c1p3", "c2p3", "r5", "r3", sep="\t")
+		print("id", "enzyme", "regex", "c1p5", "c2p5", "c1p3", "c2p3", "r5", "r3", sep="\t", file=file2)
 		for record in SeqIO.parse(file1, args.fmt):
 			for tag, regex, c5, c3 in enzymes:
-				print(">", record.id, file=sys.stderr)
-				results = digest(regex, c5, c3, str(record.seq), args.length)
+				print(record.id, ">", tag, file=sys.stderr)
+				results = digest(regex, c5, c3, str(record.seq), args.fragments)
 				results = ((record.id, tag, regex, *row) for row in results)
 				writer(file2, delimiter="\t").writerows(results)
 
