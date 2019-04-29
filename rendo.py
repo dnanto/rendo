@@ -3,6 +3,8 @@
 import re
 import sys
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter, FileType
+from csv import writer
+from pathlib import Path
 from signal import signal, SIGPIPE, SIG_DFL
 
 from Bio import SeqIO, Seq
@@ -29,44 +31,10 @@ def regexify(enzyme):
 		yield bases + rep
 
 
-def digest(enzyme, c5, c3, string):
-	positions = [ele.start() for ele in re.finditer(enzyme, string)]
-
-	s5 = [0] + [pos + c5 for pos in positions] + [len(string) + 1]
-	s3 = [0] + [pos + c3 for pos in positions] + [len(string) + 1]
-
-	for idx in range(len(s5) - 1):
-		yield string[s5[idx]:s5[idx + 1]], Seq.complement(string[s3[idx]:s3[idx + 1]])
-
-
-def parse_argv(argv):
-	parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
-
-	parser.add_argument(
-		"file", type=FileType()
-	)
-	parser.add_argument(
-		"enzyme"
-	)
-	parser.add_argument(
-		"-fmt", "--fmt", default="fasta"
-	)
-
-	args = parser.parse_args(argv)
-
-	return args
-
-
-def main(argv):
-	args = parse_argv(argv[1:])
-
-	enzyme = args.enzyme.upper()
+def load_enzyme(enzyme):
+	enzyme = enzyme.upper()
 	decoded = "".join(decode(enzyme.replace("<>", "|").replace("><", "|")))
 	regex = "".join(regexify(enzyme))
-
-	print("0123456789" * int(len(decoded) / 10 + 1))
-	print(decoded)
-	print(regex)
 
 	assert re.match(regex, decoded.replace(">", "").replace("<", "").replace("|", ""))
 
@@ -77,29 +45,78 @@ def main(argv):
 	elif not (n2 == 1 and n3 == 1):
 		raise ValueError("enzyme definition error...")
 
-	print("blunt" if n1 else "sticky")
+	print(decoded, "->", regex, "(blunt)" if n1 else "(sticky)", file=sys.stderr)
 
 	c5, c3 = "||" if n1 else "><"
 	c5, c3 = decoded.index(c5), decoded.index(c3)
 	c5 -= c3 < c5
 	c3 -= c5 < c3
 
-	print("5' cut @", c5)
-	print("3' cut @", c3)
+	print("5' cut @", c5, file=sys.stderr)
+	print("3' cut @", c3, file=sys.stderr)
 
-	with args.file as file:
-		for record in SeqIO.parse(file, args.fmt):
-			print(record)
-			r5 = []
-			r3 = []
-			for s5, s3 in digest(regex, c5, c3, str(record.seq)):
-				print(s5, s3)
-				r5.append(s5)
-				r3.append(s3)
-			print("".join(r5))
-			print("".join(r3))
-			assert "".join(r5) == str(record.seq)
-			assert "".join(r3) == Seq.complement(str(record.seq))
+	return regex, c5, c3
+
+
+def digest(enzyme, c5, c3, dna, length=True):
+	positions = [ele.start() for ele in re.finditer(enzyme, dna)]
+	p5 = [0] + [pos + c5 for pos in positions] + [len(dna) + 1]
+	p3 = [0] + [pos + c3 for pos in positions] + [len(dna) + 1]
+	indexes = range(len(p5) - 1)
+	if length:
+		for idx in indexes:
+			l5, l3 = p5[idx + 1] - p5[idx] + 1, p3[idx + 1] - p3[idx] + 1
+			yield p5[idx], p5[idx + 1], p3[idx], p3[idx + 1], l5, l3
+	else:
+		for idx in indexes:
+			s5, s3 = dna[p5[idx]:p5[idx + 1]], Seq.complement(dna[p3[idx]:p3[idx + 1]])
+			yield p5[idx], p5[idx + 1], p3[idx], p3[idx + 1], s5, s3
+
+
+def parse_argv(argv):
+	parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+
+	parser.add_argument(
+		"file", type=FileType()
+	)
+	parser.add_argument(
+		"enzyme", type=Path
+	)
+	parser.add_argument(
+		"-fmt", "--fmt", default="fasta"
+	)
+	parser.add_argument(
+		"-from-file", "--from-file", action="store_true"
+	)
+	parser.add_argument(
+		"-out", "--out", type=FileType("w"), default="-"
+	)
+	parser.add_argument(
+		"-fmt-out", "--fmt-out", default="tab"
+	)
+	parser.add_argument(
+		"-length", "--length", action="store_true"
+	)
+
+	args = parser.parse_args(argv)
+
+	return args
+
+
+def main(argv):
+	args = parse_argv(argv[1:])
+
+	with args.enzyme.open() as file:
+		enzymes = list((tag, *load_enzyme(enzyme)) for tag, enzyme in map(str.split, file))
+
+	with args.file as file1, args.out as file2:
+		print("id", "enzyme", "regex", "c1p5", "c2p5", "c1p3", "c2p3", "r5", "r3", sep="\t")
+		for record in SeqIO.parse(file1, args.fmt):
+			for tag, regex, c5, c3 in enzymes:
+				print(">", record.id, file=sys.stderr)
+				results = digest(regex, c5, c3, str(record.seq), args.length)
+				results = ((record.id, tag, regex, *row) for row in results)
+				writer(file2, delimiter="\t").writerows(results)
 
 	return 0
 
