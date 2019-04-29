@@ -32,18 +32,8 @@ def regexify(enzyme):
 def digest(enzyme, c5, c3, string):
 	positions = [ele.start() for ele in re.finditer(enzyme, string)]
 
-	s5 = [pos + c5 for pos in positions]
-	s3 = [pos + c3 for pos in positions]
-
-	if s5[0] != 0:
-		s5.insert(0, 0)
-	if s5[-1] != len(string):
-		s5.append(len(string))
-
-	if s3[0] != 0:
-		s3.insert(0, 0)
-	if s3[-1] != len(string):
-		s3.append(len(string))
+	s5 = [0] + [pos + c5 for pos in positions] + [len(string) + 1]
+	s3 = [0] + [pos + c3 for pos in positions] + [len(string) + 1]
 
 	for idx in range(len(s5) - 1):
 		yield string[s5[idx]:s5[idx + 1]], Seq.complement(string[s3[idx]:s3[idx + 1]])
@@ -91,6 +81,8 @@ def main(argv):
 
 	c5, c3 = "||" if n1 else "><"
 	c5, c3 = decoded.index(c5), decoded.index(c3)
+	c5 -= c3 < c5
+	c3 -= c5 < c3
 
 	print("5' cut @", c5)
 	print("3' cut @", c3)
@@ -98,11 +90,16 @@ def main(argv):
 	with args.file as file:
 		for record in SeqIO.parse(file, args.fmt):
 			print(record)
-			result = []
+			r5 = []
+			r3 = []
 			for s5, s3 in digest(regex, c5, c3, str(record.seq)):
 				print(s5, s3)
-				result.append(s5)
-			assert "".join(result) == str(record.seq)
+				r5.append(s5)
+				r3.append(s3)
+			print("".join(r5))
+			print("".join(r3))
+			assert "".join(r5) == str(record.seq)
+			assert "".join(r3) == Seq.complement(str(record.seq))
 
 	return 0
 
