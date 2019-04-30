@@ -7,7 +7,7 @@ output:
     toc: yes
     toc_depth: 1
 params:
-  path1: "AY599837.1.fna"
+  path1: "kajon.fna"
   path2: "enzymes.tsv"
 ---
 
@@ -34,12 +34,16 @@ if (!exists("PATH"))
 ```{r}
 system(paste("rendo.py", params$path1, params$path2, "2>", "/dev/null", collapse = " "), intern = T) %>%
   read_tsv() %>%
-  mutate(Kbp = (r5 + r3) / 1000) %>%
+  mutate(Kbp = (r5 + r3) / 1000 / 2) %>%
   count(id, enzyme, Kbp) %>%
   ggplot(aes(Kbp, id, fill = n)) +
-    geom_tile(width = 50 / 1000) +
+    geom_tile(width = 50 / 1000 / 2) +
     scale_fill_continuous(na.value = "transparent") +
     facet_wrap(enzyme ~ ., ncol = 1, strip.position = "right") +
     theme_minimal() +
-    theme(legend.position = "bottom")
+    theme(
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      legend.position = "bottom"
+    )
 ```
