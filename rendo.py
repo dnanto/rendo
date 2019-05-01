@@ -60,17 +60,17 @@ def load_enzyme(enzyme):
 
 def digest(enzyme, c5, c3, dna, fragments=True):
 	positions = [ele.start() for ele in re.finditer(enzyme, dna)]
-	p5 = [0] + [pos + c5 for pos in positions] + [len(dna) + 1]
-	p3 = [0] + [pos + c3 for pos in positions] + [len(dna) + 1]
+	p5 = [0] + [pos + c5 for pos in positions] + [len(dna)]
+	p3 = [0] + [pos + c3 for pos in positions] + [len(dna)]
 	indexes = range(len(p5) - 1)
 	if fragments:
 		for idx in indexes:
 			s5, s3 = dna[p5[idx]:p5[idx + 1]], Seq.complement(dna[p3[idx]:p3[idx + 1]])
-			yield p5[idx], p5[idx + 1], p3[idx], p3[idx + 1], s5, s3
+			yield p5[idx] + 1, p5[idx + 1], p3[idx], p3[idx + 1], s5, s3
 	else:
 		for idx in indexes:
 			l5, l3 = p5[idx + 1] - p5[idx] + 1, p3[idx + 1] - p3[idx] + 1
-			yield p5[idx], p5[idx + 1], p3[idx], p3[idx + 1], l5, l3
+			yield p5[idx] + 1, p5[idx + 1], p3[idx], p3[idx + 1], l5, l3
 
 
 def parse_argv(argv):
@@ -107,7 +107,8 @@ def main(argv):
 	args = parse_argv(argv[1:])
 
 	with args.enzyme.open() as file:
-		enzymes = list((tag, *load_enzyme(enzyme)) for tag, enzyme in map(str.split, file))
+		enzymes = (line for line in map(str.strip, file) if line[0] != "#")
+		enzymes = [(key, *load_enzyme(val)) for key, val in map(str.split, enzymes)]
 
 	with args.file as file1, args.out as file2:
 		print("id", "enzyme", "regex", "c1p5", "c2p5", "c1p3", "c2p3", "r5", "r3", sep="\t", file=file2)
