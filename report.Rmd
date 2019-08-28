@@ -1,50 +1,38 @@
 ---
-title: "rendo"
-author: "dnanto"
-date: "`r format(Sys.time(), '%B %d, %Y')`"
-output: 
-  html_document: 
-    toc: yes
-    toc_depth: 1
-params:
-  path1: "kajon.fna"
-  path2: "enzymes.tsv"
+title: "report.Rmd"
+output: html_document
+params: 
+  path: "data.tsv"
 ---
 
 ```{r setup, include=FALSE}
 library(tidyverse)
-knitr::opts_chunk$set(
-  echo = FALSE,
-	warning = FALSE,
-	message = FALSE,
-	fig.align = "center",
-	fig.width = 10,
-	fig.height = 10
-)
-options(
-	knitr.kable.NA = ""
-)
-if (!exists("PATH"))
-{
-	PATH = system('source ~/.bash_profile && echo "$PATH"', intern = T)
-	Sys.setenv(PATH = PATH)
-}
+knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-system(paste("rendo.py", params$path1, params$path2, "2>", "/dev/null", collapse = " "), intern = T) %>%
-  read_tsv() %>%
-  mutate(Kbp = r5 / 1000) %>%
-  count(id, enzyme, Kbp) %>%
-  ggplot(aes(Kbp, id, fill = n)) +
-    geom_tile(width = 50 / 1000) +
+plot_map <- function(df, xmax, width = 0.01)
+{
+  width <- width / ((xmax * width) / (max(df$Kbp) * width))
+  ggplot(df, aes(Kbp, id)) +
+    geom_tile(width = width) +
     scale_fill_continuous(na.value = "transparent") +
-    scale_x_reverse() +
-    facet_wrap(enzyme ~ ., ncol = 1, strip.position = "right") +
+    facet_wrap(enzyme ~ ., ncol = 1, scales = "free_x") +
     theme_minimal() +
     theme(
       panel.grid.major.x = element_blank(),
       panel.grid.minor.x = element_blank(),
       legend.position = "bottom"
     )
+}
+```
+
+```{r, fig.height = 8, fig.width=10}
+df <-
+read_tsv(params$path) %>%
+  mutate(Kbp = size / 1000) %>%
+  mutate_at("id", factor, levels = rev(unique(.$id))) %>%
+  ungroup()
+  
+split(df, df$enzyme) %>% lapply(plot_map, max(df$Kbp), width = 1 / 4)
 ```

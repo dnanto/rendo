@@ -3,12 +3,13 @@
 import re
 import sys
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter, FileType
-from csv import writer
-from pathlib import Path
 from signal import signal, SIGPIPE, SIG_DFL
 
-from Bio import SeqIO, Seq
+from Bio import Restriction
+from Bio import SeqIO
+from Bio.Alphabet.IUPAC import IUPACAmbiguousDNA
 from Bio.Data.IUPACData import ambiguous_dna_values
+from Bio.Seq import Seq
 
 
 def decode(enzyme):
@@ -60,55 +61,24 @@ def load_enzyme(enzyme):
 
 def digest(enzyme, c5, c3, dna, fragments=True):
 	positions = [ele.start() for ele in re.finditer(enzyme, dna)]
-	p5 = [0] + [pos + c5 for pos in positions] + [len(dna)]
-	p3 = [0] + [pos + c3 for pos in positions] + [len(dna)]
+	p5 = [0] + [pos + c5 for pos in positions] + [len(dna) + 1]
+	p3 = [0] + [pos + c3 for pos in positions] + [len(dna) + 1]
 	indexes = range(len(p5) - 1)
 	if fragments:
 		for idx in indexes:
 			s5, s3 = dna[p5[idx]:p5[idx + 1]], Seq.complement(dna[p3[idx]:p3[idx + 1]])
-			yield p5[idx] + 1, p5[idx + 1], p3[idx], p3[idx + 1], s5, s3
+			yield p5[idx], p5[idx + 1], p3[idx], p3[idx + 1], s5, s3
 	else:
 		for idx in indexes:
 			l5, l3 = p5[idx + 1] - p5[idx] + 1, p3[idx + 1] - p3[idx] + 1
-			yield p5[idx] + 1, p5[idx + 1], p3[idx], p3[idx + 1], l5, l3
+			yield p5[idx], p5[idx + 1], p3[idx], p3[idx + 1], l5, l3
 
 
-def parse_argv(argv):
-	parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
-
-	parser.add_argument(
-		"file", type=FileType()
-	)
-	parser.add_argument(
-		"enzyme", type=Path
-	)
-	parser.add_argument(
-		"-fmt", "--fmt", default="fasta"
-	)
-	parser.add_argument(
-		"-from-file", "--from-file", action="store_true"
-	)
-	parser.add_argument(
-		"-out", "--out", type=FileType("w"), default="-"
-	)
-	parser.add_argument(
-		"-fmt-out", "--fmt-out", default="tab"
-	)
-	parser.add_argument(
-		"-fragments", "--fragments", action="store_true"
-	)
-
-	args = parser.parse_args(argv)
-
-	return args
-
-
-def main(argv):
+def process(argv):
 	args = parse_argv(argv[1:])
 
 	with args.enzyme.open() as file:
-		enzymes = (line for line in map(str.strip, file) if line[0] != "#")
-		enzymes = [(key, *load_enzyme(val)) for key, val in map(str.split, enzymes)]
+		enzymes = list((tag, *load_enzyme(enzyme)) for tag, enzyme in map(str.split, file))
 
 	with args.file as file1, args.out as file2:
 		print("id", "enzyme", "regex", "c1p5", "c2p5", "c1p3", "c2p3", "r5", "r3", sep="\t", file=file2)
@@ -118,6 +88,31 @@ def main(argv):
 				results = digest(regex, c5, c3, str(record.seq), args.fragments)
 				results = ((record.id, tag, regex, *row) for row in results)
 				writer(file2, delimiter="\t").writerows(results)
+
+
+def parse_argv(argv):
+	topology = ("linear", "circular")
+	parser = ArgumentParser(description="calculate restriction fragment sizes", formatter_class=ArgumentDefaultsHelpFormatter)
+	parser.add_argument("file", type=FileType(), help="the sequence file")
+	parser.add_argument("-enzymes", nargs="+", default=["EcoRI"], help="the list of enzyme names")
+	parser.add_argument("-topology", choices=topology, default=topology[0], help="the sequence topology")
+	args = parser.parse_args(argv)
+	return args
+
+
+def main(argv):
+	args = parse_argv(argv[1:])
+
+	enzymes = [getattr(Restriction, ele) for ele in args.enzymes]
+	is_linear = args.topology == "linear"
+
+	with args.file as file:
+		print("id", "enzyme", "size", sep="\t")
+		for record in SeqIO.parse(file, "fasta"):
+			seq = Seq(str(record.seq).replace("?", "N"), alphabet=IUPACAmbiguousDNA())
+			for enzyme in enzymes:
+				for frag in enzyme.catalyze(seq, linear=is_linear):
+					print(record.id, enzyme, len(frag), sep="\t")
 
 	return 0
 
